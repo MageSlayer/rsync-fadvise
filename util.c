@@ -37,12 +37,233 @@ extern char *module_dir;
 extern unsigned int module_dirlen;
 extern char *partial_dir;
 extern filter_rule_list daemon_filter_list;
+#ifdef WITH_DROP_CACHE
+#include <sys/mman.h>
+extern int drop_cache;
+extern int verbose;
+#endif
 
 int sanitize_paths = 0;
 
 char curr_dir[MAXPATHLEN];
 unsigned int curr_dir_len;
 int curr_dir_depth; /* This is only set for a sanitizing daemon. */
+
+#ifdef WITH_DROP_CACHE
+#define FADV_BUFFER_SIZE  1024*1024*16
+
+static struct stat fadv_fd_stat[1024];
+static off_t fadv_fd_pos[1024];
+static unsigned char *fadv_core_ptr[1024];
+static int fadv_max_fd = 0;
+static int fadv_close_ring_tail = 0;
+static int fadv_close_ring_head = 0;
+static int fadv_close_ring_size = 0;
+static int fadv_close_ring[1024];
+static int fadv_close_buffer_size = 0;
+static size_t fadv_pagesize;
+
+static void fadv_fd_init_func(void)
+{
+	static int fadv_fd_init = 0;
+        if (fadv_fd_init == 0){
+                int i;
+                fadv_fd_init = 1;
+		fadv_pagesize = getpagesize();
+		if (fadv_max_fd == 0){
+			fadv_max_fd = sysconf(_SC_OPEN_MAX) - 20;
+			if (fadv_max_fd < 0)
+				fadv_max_fd = 1;
+			if (fadv_max_fd > 1000)
+				fadv_max_fd = 1000;
+		}
+                for (i=0;i<fadv_max_fd;i++){
+                        fadv_fd_pos[i] = 0;
+                        fadv_fd_stat[i].st_dev = 0;
+                        fadv_fd_stat[i].st_ino = 0;
+                        fadv_fd_stat[i].st_size = 0;
+			fadv_core_ptr[i] = NULL;
+                }
+        }
+}
+
+static void fadv_get_core(int fd)
+{
+	struct stat stat;
+	void *pa;
+	size_t pi;
+	fstat(fd,&stat);
+        if ( fadv_fd_stat[fd].st_dev == stat.st_dev && fadv_fd_stat[fd].st_ino == stat.st_ino ) {
+		return;
+	}
+	fadv_fd_stat[fd].st_dev = stat.st_dev;
+	fadv_fd_stat[fd].st_ino = stat.st_ino;
+	fadv_fd_stat[fd].st_size = stat.st_size;
+
+	if (fadv_core_ptr[fd]!=NULL){
+		free (fadv_core_ptr[fd]);
+	}
+
+	pa = mmap((void *)0, stat.st_size, PROT_READ, MAP_SHARED, fd, 0);
+        if (MAP_FAILED == pa) {
+                perror("mmap");
+        }
+	else {
+		fadv_core_ptr[fd] = calloc(1, (stat.st_size+fadv_pagesize)/fadv_pagesize);
+		if ( fadv_core_ptr[fd] == NULL ){
+			perror("calloc");
+		} else {
+			if ( mincore(pa, stat.st_size, (fadv_core_ptr[fd])) != 0){
+				perror("mincore");
+				free(fadv_core_ptr[fd]);
+				fadv_core_ptr[fd]=(unsigned char*)0;
+			} else if (verbose > 99) {
+  				rprintf(FINFO,"%d: ",fd);
+		        	for (pi = 0; pi <= stat.st_size/fadv_pagesize; pi++) {
+					if ((fadv_core_ptr[fd])[pi]&1) {
+						rprintf(FINFO,"%lu ", (unsigned long)pi);
+				      	}
+				}
+				rprintf(FINFO,"\n");
+			}
+			munmap(pa, stat.st_size);
+		}
+	}
+}
+
+static void fadv_drop(int fd, int sync)
+{
+        /* trail 1 MB behind in dropping. we do this to make
+           sure that the same block or stripe does not have
+           to be written twice */
+        off_t pos = lseek(fd,0,SEEK_CUR) - 1024*1024;
+        if (fd > fadv_max_fd){
+                return;
+        }
+        if ( fadv_fd_pos[fd] < pos - FADV_BUFFER_SIZE ) {
+                        if (sync) {
+                                /* if the file is not flushed to disk before calling fadvise,
+                                   then the Cache will not be freed and the advise gets ignored
+                                   this does give a severe hit on performance. If only there
+                                   was a way to mark cache so that it gets release once the data
+                                   is written to disk. */
+                                fdatasync(fd);
+                        }
+			if (fadv_core_ptr[fd] != NULL) {
+				size_t pi;
+				if (pos < fadv_fd_stat[fd].st_size){
+					for (pi = fadv_fd_pos[fd]/fadv_pagesize; pi <= pos/fadv_pagesize; pi++) {
+						if (! (fadv_core_ptr[fd][pi]&1)) {
+ 						        posix_fadvise64(fd, pi*fadv_pagesize, fadv_pagesize, POSIX_FADV_DONTNEED);
+						}
+					}
+				} else {
+					 posix_fadvise64(fd, fadv_fd_stat[fd].st_size, pos-fadv_fd_stat[fd].st_size, POSIX_FADV_DONTNEED);
+				}
+                        }
+			else {
+				posix_fadvise64(fd, 0, pos, POSIX_FADV_DONTNEED);
+			}
+                        fadv_fd_pos[fd] = pos;
+        }
+}
+
+#endif
+
+ssize_t fadv_write(int fd, const void *buf, size_t count)
+{
+        int ret = write(fd, buf, count);
+#ifdef WITH_DROP_CACHE
+        if (drop_cache) {
+                fadv_drop(fd,1);
+        }
+#endif
+        return ret;
+}
+
+
+
+ssize_t fadv_read(int fd, void *buf, size_t count)
+{
+        int ret;
+#ifdef WITH_DROP_CACHE
+        if (drop_cache) {
+		fadv_fd_init_func();
+		fadv_get_core(fd);
+	}
+#endif
+	ret = read(fd, buf, count);
+#ifdef WITH_DROP_CACHE
+        if (drop_cache) {
+                fadv_drop(fd,0);
+        }
+#endif
+        return ret;
+}
+
+#ifdef WITH_DROP_CACHE
+void fadv_close_all(void)
+{
+	/* printf ("%i\n",fadv_close_ring_size); */
+	while (fadv_close_ring_size > 0){
+		fdatasync(fadv_close_ring[fadv_close_ring_tail]);
+		if (fadv_core_ptr[fadv_close_ring[fadv_close_ring_tail]]){
+			size_t pi;
+			for (pi = 0; pi <= fadv_fd_stat[fadv_close_ring[fadv_close_ring_tail]].st_size/fadv_pagesize; pi++) {
+				if (!(fadv_core_ptr[fadv_close_ring[fadv_close_ring_tail]][pi]&1)) {
+				        posix_fadvise64(fadv_close_ring[fadv_close_ring_tail], pi*fadv_pagesize, fadv_pagesize, POSIX_FADV_DONTNEED);
+				}
+        	        }
+			/* if the file has grown, drop the rest */
+		        //posix_fadvise64(fadv_close_ring[fadv_close_ring_tail], fadv_fd_stat[fadv_close_ring[fadv_close_ring_tail]].st_size,0, POSIX_FADV_DONTNEED);
+
+			free(fadv_core_ptr[fadv_close_ring[fadv_close_ring_tail]]);
+			fadv_core_ptr[fadv_close_ring[fadv_close_ring_tail]] = NULL;
+			fadv_fd_stat[fadv_close_ring[fadv_close_ring_tail]].st_size = 0;
+			fadv_fd_stat[fadv_close_ring[fadv_close_ring_tail]].st_ino = 0;
+			fadv_fd_stat[fadv_close_ring[fadv_close_ring_tail]].st_dev = 0;
+		}
+		else {
+			posix_fadvise64(fadv_close_ring[fadv_close_ring_tail], 0, 0,POSIX_FADV_DONTNEED);
+		}
+		fadv_close_ring_size--;
+		close(fadv_close_ring[fadv_close_ring_tail]);
+		fadv_close_ring_tail = (fadv_close_ring_tail + 1) % fadv_max_fd;
+		fadv_close_buffer_size = 0;
+        }
+}
+
+int fadv_close(int fd)
+{
+        if (drop_cache) {
+                /* if the file is not flushed to disk before calling fadvise,
+                   then the Cache will not be freed and the advise gets ignored
+                   this does give a severe hit on performance. So instead of doing
+		   it right away, we save us a copy of the filehandle and do it
+		   some time before we are out of filehandles. This speeds
+		   up operation for small files massively. It is directly
+		   related to the number of spare file handles you have. */
+		int newfd = dup(fd);
+		off_t pos = lseek(fd,0,SEEK_CUR);
+		fadv_fd_init_func();
+		fadv_core_ptr[newfd] = fadv_core_ptr[fd];
+		fadv_fd_stat[newfd].st_size = fadv_fd_stat[fd].st_size ;
+		fadv_core_ptr[fd] = NULL;
+		fadv_close_buffer_size += pos - fadv_fd_pos[fd];
+		fadv_close_ring[fadv_close_ring_head] = newfd;
+		fadv_close_ring_head = (fadv_close_ring_head + 1) % fadv_max_fd;
+		fadv_close_ring_size ++;
+		if (fadv_close_ring_size == fadv_max_fd || fadv_close_buffer_size > 1024*1024 ){
+			/* it seems fastest to drop things 'in groups' */
+	                fadv_close_all();
+		}
+        };
+        return close(fd);
+}
+
+
+#define close(fd) fadv_close(fd)
+#endif
 
 /* Set a fd into nonblocking mode. */
 void set_nonblocking(int fd)
@@ -273,7 +494,7 @@ int full_write(int desc, const char *ptr, size_t len)
 
 	total_written = 0;
 	while (len > 0) {
-		int written = write(desc, ptr, len);
+		int written = fadv_write(desc, ptr, len);
 		if (written < 0)  {
 			if (errno == EINTR)
 				continue;
@@ -305,7 +526,7 @@ static int safe_read(int desc, char *ptr, size_t len)
 		return len;
 
 	do {
-		n_chars = read(desc, ptr, len);
+		n_chars = fadv_read(desc, ptr, len);
 	} while (n_chars < 0 && errno == EINTR);
 
 	return n_chars;

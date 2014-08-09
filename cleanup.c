@@ -53,7 +53,11 @@ void close_all(void)
 	int fd;
 	int ret;
 	STRUCT_STAT st;
-
+#endif
+#ifdef WITH_DROP_CACHE
+	fadv_close_all();
+#endif
+#ifdef SHUTDOWN_ALL_SOCKETS
 	max_fd = sysconf(_SC_OPEN_MAX) - 1;
 	for (fd = max_fd; fd >= 0; fd--) {
 		if ((ret = do_fstat(fd, &st)) == 0) {

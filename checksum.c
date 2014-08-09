@@ -24,6 +24,9 @@
 extern int checksum_seed;
 extern int protocol_version;
 extern int proper_seed_order;
+#ifdef WITH_DROP_CACHE
+#define close(fd) fadv_close(fd)
+#endif
 
 /*
   a simple 32 bit checksum that can be upadted from either end

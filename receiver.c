@@ -22,6 +22,8 @@
 #include "rsync.h"
 #include "inums.h"
 
+
+extern int verbose;
 extern int dry_run;
 extern int do_xfers;
 extern int am_root;
@@ -61,6 +63,10 @@ extern char *basis_dir[MAX_BASIS_DIRS+1];
 extern char sender_file_sum[MAX_DIGEST_LEN];
 extern struct file_list *cur_flist, *first_flist, *dir_flist;
 extern filter_rule_list daemon_filter_list;
+
+#ifdef WITH_DROP_CACHE
+#define close(fd) fadv_close(fd)
+#endif
 
 static struct bitbag *delayed_bits = NULL;
 static int phase = 0, redoing = 0;

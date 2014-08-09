@@ -46,6 +46,9 @@ extern int write_batch;
 extern int file_old_total;
 extern struct stats stats;
 extern struct file_list *cur_flist, *first_flist, *dir_flist;
+#ifdef WITH_DROP_CACHE
+#define close(fd) fadv_close(fd)
+#endif
 
 BOOL extra_flist_sending_enabled;
 

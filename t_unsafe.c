@@ -23,7 +23,7 @@
 
 #include "rsync.h"
 
-int dry_run = 0;
+int dry_run = 0, drop_cache;
 int am_root = 0;
 int am_sender = 1;
 int read_only = 0;

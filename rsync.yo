@@ -1255,6 +1255,17 @@ filesystem, but with this option rsync will probably copy more slowly.  If the
 destination is not an extent-supporting filesystem (such as ext4, xfs, NTFS,
 etc.), this option may have no positive effect at all.
 
+dit(bf(--drop-cache)) Stop rsync from disturbing the file system cache with
+the data from the files it copies. Without this option other processes, that
+had been crunching along happily using cached data, will suddenly become
+slow as they find their favorite data blocks data being evicted from the
+cache by the files read and written by rsync. Since rsync has to wait until
+the data is written to disk, before it can drop the cache, this option will
+slow rsync down considerably, especially with small files and short copy
+jobs. The bf(--drop-cache) function uses posix_fadvise64 and mincore todo
+its work. It will only get compiled if configure can find posix_fadvise64
+and mincore.
+
 dit(bf(-n, --dry-run)) This makes rsync perform a trial run that doesn't
 make any changes (and produces mostly the same output as a real run).  It
 is most commonly used in combination with the bf(-v, --verbose) and/or

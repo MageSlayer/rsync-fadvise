@@ -51,7 +51,7 @@ int sparse_end(int f, OFF_T size)
 		ret = -1;
 	else {
 		do {
-			ret = write(f, "", 1);
+			ret = fadv_write(f, "", 1);
 		} while (ret < 0 && errno == EINTR);
 
 		ret = ret <= 0 ? -1 : 0;
@@ -81,7 +81,7 @@ static int write_sparse(int f, char *buf, int len)
 		do_lseek(f, sparse_seek, SEEK_CUR);
 	sparse_seek = l2;
 
-	while ((ret = write(f, buf + l1, len - (l1+l2))) <= 0) {
+	while ((ret = fadv_write(f, buf + l1, len - (l1+l2))) <= 0) {
 		if (ret < 0 && errno == EINTR)
 			continue;
 		sparse_seek = 0;
@@ -107,7 +107,7 @@ int flush_write_file(int f)
 	char *bp = wf_writeBuf;
 
 	while (wf_writeBufCnt > 0) {
-		if ((ret = write(f, bp, wf_writeBufCnt)) < 0) {
+		if ((ret = fadv_write(f, bp, wf_writeBufCnt)) < 0) {
 			if (errno == EINTR)
 				continue;
 			return ret;
@@ -254,7 +254,7 @@ char *map_ptr(struct map_struct *map, OFF_T offset, int32 len)
 	map->p_len = window_size;
 
 	while (read_size > 0) {
-		int32 nread = read(map->fd, map->p + read_offset, read_size);
+		int32 nread = fadv_read(map->fd, map->p + read_offset, read_size);
 		if (nread <= 0) {
 			if (!map->status)
 				map->status = nread ? errno : ENODATA;

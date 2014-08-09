@@ -62,6 +62,9 @@ int preserve_uid = 0;
 int preserve_gid = 0;
 int preserve_times = 0;
 int update_only = 0;
+#ifdef WITH_DROP_CACHE
+int drop_cache = 0;
+#endif
 int cvs_exclude = 0;
 int dry_run = 0;
 int do_xfers = 1;
@@ -290,7 +293,7 @@ static struct output_struct debug_words[COUNT_DEBUG+1] = {
 	{ NULL, "--debug", 0, 0, 0, 0 }
 };
 
-static int verbose = 0;
+int verbose = 0;
 static int do_stats = 0;
 static int do_progress = 0;
 static int daemon_opt;   /* sets am_daemon after option error-reporting */
@@ -680,6 +683,9 @@ void usage(enum logcode F)
   rprintf(F,"     --backup-dir=DIR        make backups into hierarchy based in DIR\n");
   rprintf(F,"     --suffix=SUFFIX         set backup suffix (default %s w/o --backup-dir)\n",BACKUP_SUFFIX);
   rprintf(F," -u, --update                skip files that are newer on the receiver\n");
+#ifdef WITH_DROP_CACHE
+  rprintf(F,"     --drop-cache            do not cache rsync files (POSIX_FADV_DONTNEED)\n");
+#endif
   rprintf(F,"     --inplace               update destination files in-place (SEE MAN PAGE)\n");
   rprintf(F,"     --append                append data onto shorter files\n");
   rprintf(F,"     --append-verify         like --append, but with old data in file checksum\n");
@@ -914,6 +920,9 @@ static struct poptOption long_options[] = {
   {"no-one-file-system",0, POPT_ARG_VAL,    &one_file_system, 0, 0, 0 },
   {"no-x",             0,  POPT_ARG_VAL,    &one_file_system, 0, 0, 0 },
   {"update",          'u', POPT_ARG_NONE,   &update_only, 0, 0, 0 },
+#ifdef WITH_DROP_CACHE
+  {"drop-cache",       0,  POPT_ARG_NONE,   &drop_cache, 0, 0, 0 },
+#endif
   {"existing",         0,  POPT_ARG_NONE,   &ignore_non_existing, 0, 0, 0 },
   {"ignore-non-existing",0,POPT_ARG_NONE,   &ignore_non_existing, 0, 0, 0 },
   {"ignore-existing",  0,  POPT_ARG_NONE,   &ignore_existing, 0, 0, 0 },
@@ -1065,6 +1074,9 @@ static void daemon_usage(enum logcode F)
   rprintf(F,"     --log-file=FILE         override the \"log file\" setting\n");
   rprintf(F,"     --log-file-format=FMT   override the \"log format\" setting\n");
   rprintf(F,"     --sockopts=OPTIONS      specify custom TCP options\n");
+#ifdef WITH_DROP_CACHE
+  rprintf(F,"     --drop-cache            do not cache rsync files (POSIX_FADV_DONTNEED)\n");
+#endif
   rprintf(F," -v, --verbose               increase verbosity\n");
   rprintf(F," -4, --ipv4                  prefer IPv4\n");
   rprintf(F," -6, --ipv6                  prefer IPv6\n");
@@ -1089,6 +1101,9 @@ static struct poptOption long_daemon_options[] = {
   {"log-file",         0,  POPT_ARG_STRING, &logfile_name, 0, 0, 0 },
   {"log-file-format",  0,  POPT_ARG_STRING, &logfile_format, 0, 0, 0 },
   {"port",             0,  POPT_ARG_INT,    &rsync_port, 0, 0, 0 },
+#ifdef WITH_DROP_CACHE
+  {"drop-cache",       0,  POPT_ARG_NONE,   &drop_cache, 0, 0, 0 },
+#endif
   {"sockopts",         0,  POPT_ARG_STRING, &sockopts, 0, 0, 0 },
   {"protocol",         0,  POPT_ARG_INT,    &protocol_version, 0, 0, 0 },
   {"server",           0,  POPT_ARG_NONE,   &am_server, 0, 0, 0 },
@@ -2376,6 +2391,10 @@ void server_options(char **args, int *argc_p)
 	if (!am_sender)
 		args[ac++] = "--sender";
 
+#ifdef WITH_DROP_CACHE
+	if (drop_cache)
+		args[ac++] = "--drop-cache";
+#endif
 	x = 1;
 	argstr[0] = '-';
 

@@ -1291,3 +1291,16 @@ char *getpass(const char *prompt);
 #ifdef MAINTAINER_MODE
 const char *get_panic_action(void);
 #endif
+
+#if defined HAVE_POSIX_FADVISE64 && defined HAVE_MINCORE && defined HAVE_MMAP
+#define WITH_DROP_CACHE 1
+#include <sys/mman.h>
+int fadv_close(int fd);
+void fadv_close_all(void);
+#endif
+
+ssize_t fadv_write(int fd, const void *buf, size_t count);
+ssize_t fadv_read(int fd, void *buf, size_t count);
+
+
+
