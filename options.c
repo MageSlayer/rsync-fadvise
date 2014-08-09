@@ -64,6 +64,7 @@ int preserve_times = 0;
 int update_only = 0;
 #ifdef WITH_DROP_CACHE
 int drop_cache = 0;
+int drop_cache_remote = 0;
 #endif
 int cvs_exclude = 0;
 int dry_run = 0;
@@ -685,6 +686,7 @@ void usage(enum logcode F)
   rprintf(F," -u, --update                skip files that are newer on the receiver\n");
 #ifdef WITH_DROP_CACHE
   rprintf(F,"     --drop-cache            do not cache rsync files (POSIX_FADV_DONTNEED)\n");
+  rprintf(F,"     --drop-cache-remote     send drop-cache option to remote servers (will work only for patched servers, default off)\n");
 #endif
   rprintf(F,"     --inplace               update destination files in-place (SEE MAN PAGE)\n");
   rprintf(F,"     --append                append data onto shorter files\n");
@@ -922,6 +924,7 @@ static struct poptOption long_options[] = {
   {"update",          'u', POPT_ARG_NONE,   &update_only, 0, 0, 0 },
 #ifdef WITH_DROP_CACHE
   {"drop-cache",       0,  POPT_ARG_NONE,   &drop_cache, 0, 0, 0 },
+  {"drop-cache-remote",0,  POPT_ARG_NONE,   &drop_cache_remote, 0, 0, 0 },
 #endif
   {"existing",         0,  POPT_ARG_NONE,   &ignore_non_existing, 0, 0, 0 },
   {"ignore-non-existing",0,POPT_ARG_NONE,   &ignore_non_existing, 0, 0, 0 },
@@ -2392,7 +2395,7 @@ void server_options(char **args, int *argc_p)
 		args[ac++] = "--sender";
 
 #ifdef WITH_DROP_CACHE
-	if (drop_cache)
+	if (drop_cache && drop_cache_remote)
 		args[ac++] = "--drop-cache";
 #endif
 	x = 1;
