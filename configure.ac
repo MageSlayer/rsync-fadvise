@@ -3,9 +3,9 @@ dnl Process this file with autoconf to produce a configure script.
 AC_INIT()
 AC_CONFIG_SRCDIR([byteorder.h])
 AC_CONFIG_HEADER(config.h)
-AC_PREREQ(2.59)
+AC_PREREQ(2.60)
 
-RSYNC_VERSION=3.0.9
+RSYNC_VERSION=3.1.1
 AC_SUBST(RSYNC_VERSION)
 AC_MSG_NOTICE([Configuring rsync $RSYNC_VERSION])
 
@@ -39,6 +39,7 @@ AC_PROG_CC
 AC_PROG_CPP
 AC_PROG_EGREP
 AC_PROG_INSTALL
+AC_PROG_MKDIR_P
 AC_PROG_CC_STDC
 AC_SUBST(SHELL)
 
@@ -77,6 +78,15 @@ fi
 
 AC_ARG_WITH(included-popt,
         AC_HELP_STRING([--with-included-popt], [use bundled popt library, not from system]))
+
+AC_ARG_WITH(included-zlib,
+        AC_HELP_STRING([--with-included-zlib], [use bundled zlib library, not from system]))
+
+AC_ARG_WITH(protected-args,
+        AC_HELP_STRING([--with-protected-args], [make --protected-args option the default]))
+if test x"$with_protected_args" = x"yes"; then
+	AC_DEFINE_UNQUOTED(RSYNC_USE_PROTECTED_ARGS, 1, [Define to 1 if --protected-args should be the default])
+fi
 
 AC_ARG_WITH(rsync-path,
 	AC_HELP_STRING([--with-rsync-path=PATH], [set default --rsync-path to PATH (default: rsync)]),
@@ -124,7 +134,13 @@ AC_DEFINE_UNQUOTED(RSYNC_RSH, "$RSYNC_RSH", [default -e command])
 AC_CHECK_PROG(HAVE_YODL2MAN, yodl2man, 1, 0)
 if test x$HAVE_YODL2MAN = x1; then
     MAKE_MAN=man
+else
+    MAKE_MAN=man-copy
 fi
+
+# Some programs on solaris are only found in /usr/xpg4/bin (or work better than others versions).
+AC_PATH_PROG(SHELL_PATH, sh, /bin/sh, [/usr/xpg4/bin$PATH_SEPARATOR$PATH])
+AC_PATH_PROG(FAKEROOT_PATH, fakeroot, /usr/bin/fakeroot, [/usr/xpg4/bin$PATH_SEPARATOR$PATH])
 
 AC_ARG_WITH(nobody-group,
     AC_HELP_STRING([--with-nobody-group=GROUP],
@@ -331,7 +347,8 @@ AC_CHECK_HEADERS(sys/fcntl.h sys/select.h fcntl.h sys/time.h sys/unistd.h \
     sys/un.h sys/attr.h mcheck.h arpa/inet.h arpa/nameser.h locale.h \
     netdb.h malloc.h float.h limits.h iconv.h libcharset.h langinfo.h \
     sys/acl.h acl/libacl.h attr/xattr.h sys/xattr.h sys/extattr.h \
-    popt.h popt/popt.h netinet/in_systm.h netinet/ip.h)
+    popt.h popt/popt.h linux/falloc.h netinet/in_systm.h netinet/ip.h \
+    zlib.h)
 AC_HEADER_MAJOR
 
 AC_CACHE_CHECK([if makedev takes 3 args],rsync_cv_MAKEDEV_TAKES_3_ARGS,[
@@ -379,7 +396,18 @@ AC_TYPE_SIGNAL
 AC_TYPE_UID_T
 AC_CHECK_TYPES([mode_t,off_t,size_t,pid_t,id_t])
 AC_TYPE_GETGROUPS
-AC_CHECK_MEMBERS([struct stat.st_rdev])
+AC_CHECK_MEMBERS([struct stat.st_rdev,
+		  struct stat.st_mtimensec,
+		  struct stat.st_mtim.tv_nsec],,,[
+#ifdef HAVE_SYS_TYPES_H
+#include <sys/types.h>
+#endif
+#ifdef HAVE_SYS_STAT_H
+#include <sys/stat.h>
+#endif
+#ifdef HAVE_UNISTD_H
+#include <unistd.h>
+#endif])
 
 TYPE_SOCKLEN_T
 
@@ -573,13 +601,49 @@ AC_CHECK_FUNCS(waitpid wait4 getcwd strdup chown chmod lchmod mknod mkfifo \
     strlcat strlcpy strtol mallinfo getgroups setgroups geteuid getegid \
     setlocale setmode open64 lseek64 mkstemp64 mtrace va_copy __va_copy \
     seteuid strerror putenv iconv_open locale_charset nl_langinfo getxattr \
-    extattr_get_link sigaction sigprocmask setattrlist \
-    utimensat)
+    extattr_get_link sigaction sigprocmask setattrlist getgrouplist \
+    initgroups utimensat posix_fallocate attropen setvbuf)
 
 dnl cygwin iconv.h defines iconv_open as libiconv_open
 if test x"$ac_cv_func_iconv_open" != x"yes"; then
     AC_CHECK_FUNC(libiconv_open, [ac_cv_func_iconv_open=yes; AC_DEFINE(HAVE_ICONV_OPEN, 1)])
 fi
+
+dnl Preallocation stuff (also fallocate, posix_fallocate function tests above):
+
+AC_CACHE_CHECK([for useable fallocate],rsync_cv_have_fallocate,[
+AC_TRY_LINK([#include <fcntl.h>
+#include <sys/types.h>],
+[fallocate(0, 0, 0, 0);],
+rsync_cv_have_fallocate=yes,rsync_cv_have_fallocate=no)])
+if test x"$rsync_cv_have_fallocate" = x"yes"; then
+    AC_DEFINE(HAVE_FALLOCATE, 1, [Define to 1 if you have the fallocate function and it compiles and links without error])
+fi
+
+AC_CACHE_CHECK([for SYS_fallocate],rsync_cv_have_sys_fallocate,[
+AC_TRY_COMPILE([#include <sys/syscall.h>
+#include <sys/types.h>],
+[syscall(SYS_fallocate, 0, 0, (loff_t)0, (loff_t)0);],
+rsync_cv_have_sys_fallocate=yes,rsync_cv_have_sys_fallocate=no)])
+if test x"$rsync_cv_have_sys_fallocate" = x"yes"; then
+    AC_DEFINE(HAVE_SYS_FALLOCATE, 1, [Define to 1 if you have the SYS_fallocate syscall number])
+fi
+
+if test x"$ac_cv_func_posix_fallocate" = x"yes"; then
+    AC_MSG_CHECKING([whether posix_fallocate is efficient])
+    case $host_os in
+    *cygwin*)
+	AC_MSG_RESULT(yes)
+	AC_DEFINE(HAVE_EFFICIENT_POSIX_FALLOCATE, 1,
+		  [Define if posix_fallocate is efficient (Cygwin)])
+	;;
+    *)
+	AC_MSG_RESULT(no)
+	;;
+    esac
+fi
+
+dnl End of preallocation stuff
 
 AC_CHECK_FUNCS(getpgrp tcgetpgrp)
 if test $ac_cv_func_getpgrp = yes; then
@@ -641,6 +705,7 @@ AC_CACHE_CHECK([whether link() can hard-link symlinks],rsync_cv_can_hardlink_sym
     main() {
 	unlink(FILENAME);
 	if (symlink("conftest.no-such", FILENAME) < 0) abort();
+	unlink(FILENAME "2");
 	if (link(FILENAME, FILENAME "2") < 0) exit(1);
 	exit(0);
     }],
@@ -660,6 +725,7 @@ AC_CACHE_CHECK([whether link() can hard-link special files],rsync_cv_can_hardlin
     main() {
 	unlink(FILENAME);
 	if (mkfifo(FILENAME, 0777) < 0) abort();
+	unlink(FILENAME "2");
 	if (link(FILENAME, FILENAME "2") < 0) exit(1);
 	exit(0);
     }],
@@ -675,16 +741,14 @@ AC_TRY_RUN([
 
 main() {
        int fd[2];
-#ifdef __CYGWIN__
-       exit(1);
-#else
        exit((socketpair(AF_UNIX, SOCK_STREAM, 0, fd) != -1) ? 0 : 1);
-#endif
 }],
 rsync_cv_HAVE_SOCKETPAIR=yes,rsync_cv_HAVE_SOCKETPAIR=no,rsync_cv_HAVE_SOCKETPAIR=cross)])
 if test x"$rsync_cv_HAVE_SOCKETPAIR" = x"yes"; then
     AC_DEFINE(HAVE_SOCKETPAIR, 1, [Define to 1 if you have the "socketpair" function])
 fi
+
+AC_CHECK_FUNCS(getpass, , [AC_LIBOBJ(lib/getpass)])
 
 if test x"$with_included_popt" != x"yes"; then
     AC_CHECK_LIB(popt, poptGetContext, , [with_included_popt=yes])
@@ -703,7 +767,7 @@ AC_MSG_CHECKING([whether to use included libpopt])
 if test x"$with_included_popt" = x"yes"; then
     AC_MSG_RESULT($srcdir/popt)
     BUILD_POPT='$(popt_OBJS)'
-    CFLAGS="$CFLAGS -I$srcdir/popt"
+    CFLAGS="-I$srcdir/popt $CFLAGS"
     if test x"$ALLOCA" != x
     then
 	# this can be removed when/if we add an included alloca.c;
@@ -711,6 +775,26 @@ if test x"$with_included_popt" = x"yes"; then
 	AC_MSG_WARN([included libpopt will use malloc, not alloca (which wastes a small amount of memory)])
     fi
 else
+    AC_MSG_RESULT(no)
+fi
+
+# We default to using our zlib unless --with-included-zlib=no is given.
+if test x"$with_included_zlib" != x"no"; then
+    with_included_zlib=yes
+elif test x"$ac_cv_header_zlib_h" != x"yes"; then
+    with_included_zlib=yes
+fi
+if test x"$with_included_zlib" != x"yes"; then
+    AC_CHECK_LIB(z, deflateParams, , [with_included_zlib=yes])
+fi
+
+AC_MSG_CHECKING([whether to use included zlib])
+if test x"$with_included_zlib" = x"yes"; then
+    AC_MSG_RESULT($srcdir/zlib)
+    BUILD_ZLIB='$(zlib_OBJS)'
+    CFLAGS="-I$srcdir/zlib $CFLAGS"
+else
+    AC_DEFINE(EXTERNAL_ZLIB, 1, [Define to 1 if using external zlib])
     AC_MSG_RESULT(no)
 fi
 
@@ -867,7 +951,11 @@ AC_SUBST(OBJ_SAVE)
 AC_SUBST(OBJ_RESTORE)
 AC_SUBST(CC_SHOBJ_FLAG)
 AC_SUBST(BUILD_POPT)
+AC_SUBST(BUILD_ZLIB)
 AC_SUBST(MAKE_MAN)
+
+AC_PATH_PROG([STUNNEL], [stunnel], [stunnel], [$PATH$PATH_SEPARATOR/usr/sbin$PATH_SEPARATOR/sbin])
+AC_PATH_PROG([STUNNEL4], [stunnel4], [$STUNNEL], [$PATH$PATH_SEPARATOR/usr/sbin$PATH_SEPARATOR/sbin])
 
 AC_CHECK_FUNCS(_acl __acl _facl __facl)
 #################################################
@@ -887,7 +975,7 @@ else
 	AC_DEFINE(HAVE_UNIXWARE_ACLS, 1, [true if you have UnixWare ACLs])
 	AC_DEFINE(SUPPORT_ACLS, 1, [Define to 1 to add support for ACLs])
 	;;
-    *solaris*|*cygwin*)
+    solaris*|*cygwin*)
 	AC_MSG_RESULT(Using solaris ACLs)
 	AC_DEFINE(HAVE_SOLARIS_ACLS, 1, [true if you have solaris ACLs])
 	AC_DEFINE(SUPPORT_ACLS, 1)
@@ -921,7 +1009,7 @@ else
     *)
 	AC_MSG_RESULT(running tests:)
 	AC_CHECK_LIB(acl,acl_get_file)
-	    AC_CACHE_CHECK([for ACL support],samba_cv_HAVE_POSIX_ACLS,[
+	AC_CACHE_CHECK([for ACL support],samba_cv_HAVE_POSIX_ACLS,[
 	    AC_TRY_LINK([#include <sys/types.h>
 #include <sys/acl.h>],
 [ acl_t acl; int entry_id; acl_entry_t *entry_p; return acl_get_entry( acl, entry_id, entry_p);],
@@ -956,7 +1044,7 @@ AC_MSG_CHECKING(whether to support extended attributes)
 AC_ARG_ENABLE(xattr-support,
     AC_HELP_STRING([--disable-xattr-support],
 	    [disable extended attributes]),
-    [], [case "$ac_cv_func_getxattr$ac_cv_func_extattr_get_link" in
+    [], [case "$ac_cv_func_getxattr$ac_cv_func_extattr_get_link$ac_cv_func_attropen" in
 	*yes*) enable_xattr_support=maybe ;;
 	*) enable_xattr_support=no ;;
 	esac])
@@ -970,6 +1058,8 @@ else
 	AC_MSG_RESULT(Using Linux xattrs)
 	AC_DEFINE(HAVE_LINUX_XATTRS, 1, [True if you have Linux xattrs])
 	AC_DEFINE(SUPPORT_XATTRS, 1)
+	AC_DEFINE(NO_SYMLINK_USER_XATTRS, 1, [True if symlinks do not support user xattrs])
+	AC_CHECK_LIB(attr,getxattr)
 	;;
     darwin*)
 	AC_MSG_RESULT(Using OS X xattrs)
@@ -984,7 +1074,9 @@ else
 	AC_DEFINE(SUPPORT_XATTRS, 1)
 	;;
     solaris*)
-	# Better Solaris support coming in 3.1.0...
+	AC_MSG_RESULT(Using Solaris xattrs)
+	AC_DEFINE(HAVE_SOLARIS_XATTRS, 1, [True if you have Solaris xattrs])
+	AC_DEFINE(SUPPORT_XATTRS, 1)
 	AC_DEFINE(NO_SYMLINK_XATTRS, 1, [True if symlinks do not support xattrs])
 	;;
     *)
@@ -1020,3 +1112,8 @@ AC_OUTPUT
 AC_MSG_RESULT()
 AC_MSG_RESULT([    rsync ${RSYNC_VERSION} configuration successful])
 AC_MSG_RESULT()
+if test x$HAVE_YODL2MAN != x1; then
+    AC_MSG_RESULT([    Note that yodl2man was not found, so pre-existing manpage files will be])
+    AC_MSG_RESULT([    used w/o change (if available) -- no .yo file changes will be used.])
+    AC_MSG_RESULT()
+fi

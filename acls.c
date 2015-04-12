@@ -3,7 +3,7 @@
  *
  * Copyright (C) 1996 Andrew Tridgell
  * Copyright (C) 1996 Paul Mackerras
- * Copyright (C) 2006-2009 Wayne Davison
+ * Copyright (C) 2006-2014 Wayne Davison
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -423,7 +423,7 @@ static BOOL pack_smb_acl(SMB_ACL_T *smb_acl, const rsync_acl *racl)
 #ifdef ACLS_NEED_MASK
 	mask_bits = racl->mask_obj == NO_ENTRY ? racl->group_obj & ~NO_ENTRY : racl->mask_obj;
 	COE( sys_acl_create_entry,(smb_acl, &entry) );
-	COE( sys_acl_set_info,(entry, SMB_ACL_MASK, mask_bits, NULL) );
+	COE( sys_acl_set_info,(entry, SMB_ACL_MASK, mask_bits, 0) );
 #else
 	if (racl->mask_obj != NO_ENTRY) {
 		COE( sys_acl_create_entry,(smb_acl, &entry) );
@@ -560,7 +560,8 @@ int get_acl(const char *fname, stat_x *sxp)
 		if (!preserve_devices)
 #endif
 			return 0;
-	}
+	} else if (IS_MISSING_FILE(sxp->st))
+		return 0;
 
 	if (get_rsync_acl(fname, sxp->acc_acl, SMB_ACL_TYPE_ACCESS,
 			  sxp->st.st_mode) < 0) {
@@ -1143,7 +1144,7 @@ int default_perms_for_dir(const char *dir)
 	/* Apply the permission-bit entries of the default ACL, if any. */
 	if (racl.user_obj != NO_ENTRY) {
 		perms = rsync_acl_get_perms(&racl);
-		if (verbose > 2)
+		if (DEBUG_GTE(ACL, 1))
 			rprintf(FINFO, "got ACL-based default perms %o for directory %s\n", perms, dir);
 	}
 
