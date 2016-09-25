@@ -1,6 +1,6 @@
 Summary: A fast, versatile, remote (and local) file-copying tool
 Name: rsync
-Version: 3.1.1
+Version: 3.1.2
 %define fullversion %{version}
 Release: 1
 %define srcdir src
@@ -91,8 +91,8 @@ rm -rf $RPM_BUILD_ROOT
 %dir /etc/rsync-ssl/certs
 
 %changelog
-* Sun Jun 22 2014 Wayne Davison <wayned@samba.org>
-Released 3.1.1.
+* Mon Dec 21 2015 Wayne Davison <wayned@samba.org>
+Released 3.1.2.
 
 * Fri Mar 21 2008 Wayne Davison <wayned@samba.org>
 Added installation of /etc/xinetd.d/rsync file and some commented-out

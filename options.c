@@ -3,7 +3,7 @@
  *
  * Copyright (C) 1998-2001 Andrew Tridgell <tridge@samba.org>
  * Copyright (C) 2000, 2001, 2002 Martin Pool <mbp@samba.org>
- * Copyright (C) 2002-2014 Wayne Davison
+ * Copyright (C) 2002-2015 Wayne Davison
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -411,16 +411,17 @@ static void parse_output_words(struct output_struct *words, short *levels,
 	const char *s;
 	int j, len, lev;
 
-	if (!str)
-		return;
-
-	while (*str) {
+	for ( ; str; str = s) {
 		if ((s = strchr(str, ',')) != NULL)
 			len = s++ - str;
 		else
 			len = strlen(str);
-		while (len && isDigit(str+len-1))
-			len--;
+		if (!len)
+			continue;
+		if (!isDigit(str)) {
+			while (len && isDigit(str+len-1))
+				len--;
+		}
 		lev = isDigit(str+len) ? atoi(str+len) : 1;
 		if (lev > MAX_OUT_LEVEL)
 			lev = MAX_OUT_LEVEL;
@@ -448,9 +449,6 @@ static void parse_output_words(struct output_struct *words, short *levels,
 				words[j].help, len, str);
 			exit_cleanup(RERR_SYNTAX);
 		}
-		if (!s)
-			break;
-		str = s;
 	}
 }
 
@@ -613,7 +611,7 @@ static void print_rsync_version(enum logcode f)
 
 	rprintf(f, "%s  version %s  protocol version %d%s\n",
 		RSYNC_NAME, RSYNC_VERSION, PROTOCOL_VERSION, subprotocol);
-	rprintf(f, "Copyright (C) 1996-2014 by Andrew Tridgell, Wayne Davison, and others.\n");
+	rprintf(f, "Copyright (C) 1996-2015 by Andrew Tridgell, Wayne Davison, and others.\n");
 	rprintf(f, "Web site: http://rsync.samba.org/\n");
 	rprintf(f, "Capabilities:\n");
 	rprintf(f, "    %d-bit files, %d-bit inums, %d-bit timestamps, %d-bit long ints,\n",
@@ -2480,9 +2478,11 @@ void server_options(char **args, int *argc_p)
 	 * but checking the pre-negotiated value allows the user to use a
 	 * --protocol=29 override to avoid the use of this -eFLAGS opt. */
 	if (protocol_version >= 30) {
+		/* Use "eFlags" alias so that cull_options doesn't think that these are no-arg option letters. */
+#define eFlags argstr
 		/* We make use of the -e option to let the server know about
 		 * any pre-release protocol version && some behavior flags. */
-		argstr[x++] = 'e';
+		eFlags[x++] = 'e';
 #if SUBPROTOCOL_VERSION != 0
 		if (protocol_version == PROTOCOL_VERSION) {
 			x += snprintf(argstr+x, sizeof argstr - x,
@@ -2490,17 +2490,19 @@ void server_options(char **args, int *argc_p)
 				      PROTOCOL_VERSION, SUBPROTOCOL_VERSION);
 		} else
 #endif
-			argstr[x++] = '.';
+			eFlags[x++] = '.';
 		if (allow_inc_recurse)
-			argstr[x++] = 'i';
+			eFlags[x++] = 'i';
 #ifdef CAN_SET_SYMLINK_TIMES
-		argstr[x++] = 'L'; /* symlink time-setting support */
+		eFlags[x++] = 'L'; /* symlink time-setting support */
 #endif
 #ifdef ICONV_OPTION
-		argstr[x++] = 's'; /* symlink iconv translation support */
+		eFlags[x++] = 's'; /* symlink iconv translation support */
 #endif
-		argstr[x++] = 'f'; /* flist I/O-error safety support */
-		argstr[x++] = 'x'; /* xattr hardlink optimization not desired */
+		eFlags[x++] = 'f'; /* flist I/O-error safety support */
+		eFlags[x++] = 'x'; /* xattr hardlink optimization not desired */
+		eFlags[x++] = 'C'; /* support checksum seed order fix */
+#undef eFlags
 	}
 
 	if (x >= (int)sizeof argstr) { /* Not possible... */

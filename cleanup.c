@@ -4,7 +4,7 @@
  * Copyright (C) 1996-2000 Andrew Tridgell
  * Copyright (C) 1996 Paul Mackerras
  * Copyright (C) 2002 Martin Pool
- * Copyright (C) 2003-2014 Wayne Davison
+ * Copyright (C) 2003-2015 Wayne Davison
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,6 +22,7 @@
 
 #include "rsync.h"
 
+extern int dry_run;
 extern int am_server;
 extern int am_daemon;
 extern int am_receiver;
@@ -232,8 +233,9 @@ NORETURN void _exit_cleanup(int code, const char *file, int line)
 		if (DEBUG_GTE(EXIT, 1)) {
 			rprintf(FINFO,
 				"[%s] _exit_cleanup(code=%d, file=%s, line=%d): "
-				"about to call exit(%d)\n",
-				who_am_i(), first_code, exit_file, exit_line, exit_code);
+				"about to call exit(%d)%s\n",
+				who_am_i(), first_code, exit_file, exit_line, exit_code,
+				dry_run ? " (DRY RUN)" : "");
 		}
 
 		/* FALLTHROUGH */

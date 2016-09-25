@@ -4,7 +4,7 @@
  * Copyright (C) 1996-2000 Andrew Tridgell
  * Copyright (C) 1996 Paul Mackerras
  * Copyright (C) 2001, 2002 Martin Pool <mbp@samba.org>
- * Copyright (C) 2003-2014 Wayne Davison
+ * Copyright (C) 2003-2015 Wayne Davison
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -35,6 +35,9 @@ extern int checksum_len;
  **/
 int msleep(int t)
 {
+#ifdef HAVE_USLEEP
+	usleep(t*1000);
+#else
 	int tdiff = 0;
 	struct timeval tval, t1, t2;
 
@@ -48,11 +51,12 @@ int msleep(int t)
 		select(0,NULL,NULL, NULL, &tval);
 
 		gettimeofday(&t2, NULL);
-		if (t2.tv_sec < t1.tv_sec)
-			t1 = t2; /* Time went backwards, so start over. */
 		tdiff = (t2.tv_sec - t1.tv_sec)*1000 +
 			(t2.tv_usec - t1.tv_usec)/1000;
+		if (tdiff < 0)
+			t1 = t2; /* Time went backwards, so start over. */
 	}
+#endif
 
 	return True;
 }

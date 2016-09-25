@@ -3,7 +3,7 @@
  *
  * Copyright (C) 1992-2001 Andrew Tridgell <tridge@samba.org>
  * Copyright (C) 2001, 2002 Martin Pool <mbp@samba.org>
- * Copyright (C) 2003-2014 Wayne Davison
+ * Copyright (C) 2003-2015 Wayne Davison
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -161,7 +161,7 @@ int try_bind_local(int s, int ai_family, int ai_socktype,
 }
 
 /* connect() timeout handler based on alarm() */
-static RETSIGTYPE contimeout_handler(UNUSED(int val))
+static void contimeout_handler(UNUSED(int val))
 {
 	connect_timeout = -1;
 }
@@ -529,7 +529,7 @@ int is_a_socket(int fd)
 }
 
 
-static RETSIGTYPE sigchld_handler(UNUSED(int val))
+static void sigchld_handler(UNUSED(int val))
 {
 #ifdef WNOHANG
 	while (waitpid(-1, NULL, WNOHANG) > 0) {}

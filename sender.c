@@ -3,7 +3,7 @@
  *
  * Copyright (C) 1996 Andrew Tridgell
  * Copyright (C) 1996 Paul Mackerras
- * Copyright (C) 2003-2014 Wayne Davison
+ * Copyright (C) 2003-2015 Wayne Davison
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -143,11 +143,12 @@ void successful_send(int ndx)
 		goto failed;
 	}
 
-	if (st.st_size != F_LENGTH(file) || st.st_mtime != file->modtime
+	if (S_ISREG(file->mode) /* Symlinks & devices don't need this check: */
+	 && (st.st_size != F_LENGTH(file) || st.st_mtime != file->modtime
 #ifdef ST_MTIME_NSEC
 	 || (NSEC_BUMP(file) && (uint32)st.ST_MTIME_NSEC != F_MOD_NSEC(file))
 #endif
-	) {
+	)) {
 		rprintf(FERROR_XFER, "ERROR: Skipping sender remove for changed file: %s\n", fname);
 		return;
 	}
@@ -319,8 +320,7 @@ void send_files(int f_in, int f_out)
 		stats.xferred_files++;
 		stats.total_transferred_size += F_LENGTH(file);
 
-		if (!log_before_transfer)
-			remember_initial_stats();
+		remember_initial_stats();
 
 		if (!do_xfers) { /* log the transfer */
 			log_item(FCLIENT, file, iflags, NULL);

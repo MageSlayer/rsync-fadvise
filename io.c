@@ -4,7 +4,7 @@
  * Copyright (C) 1996-2001 Andrew Tridgell
  * Copyright (C) 1996 Paul Mackerras
  * Copyright (C) 2001, 2002 Martin Pool <mbp@samba.org>
- * Copyright (C) 2003-2014 Wayne Davison
+ * Copyright (C) 2003-2015 Wayne Davison
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1685,7 +1685,7 @@ void wait_for_receiver(void)
 				rprintf(FINFO, "[%s] receiving flist for dir %d\n",
 					who_am_i(), ndx);
 			}
-			flist = recv_file_list(iobuf.in_fd);
+			flist = recv_file_list(iobuf.in_fd, ndx);
 			flist->parent_ndx = ndx;
 #ifdef SUPPORT_HARD_LINKS
 			if (preserve_hard_links)
@@ -2283,7 +2283,7 @@ void io_printf(int fd, const char *format, ...)
 	if (len < 0)
 		exit_cleanup(RERR_PROTOCOL);
 
-	if (len > (int)sizeof buf) {
+	if (len >= (int)sizeof buf) {
 		rprintf(FERROR, "io_printf() was too long for the buffer.\n");
 		exit_cleanup(RERR_PROTOCOL);
 	}

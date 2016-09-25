@@ -3,7 +3,7 @@
  *
  * Copyright (C) 1996 Andrew Tridgell
  * Copyright (C) 1996 Paul Mackerras
- * Copyright (C) 2003-2014 Wayne Davison
+ * Copyright (C) 2003-2015 Wayne Davison
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -364,7 +364,7 @@ int read_ndx_and_attrs(int f_in, int f_out, int *iflag_ptr, uchar *type_ptr,
 		}
 		/* Send all the data we read for this flist to the generator. */
 		start_flist_forward(ndx);
-		flist = recv_file_list(f_in);
+		flist = recv_file_list(f_in, ndx);
 		flist->parent_ndx = ndx;
 		stop_flist_forward();
 	}
@@ -548,7 +548,11 @@ int set_file_attrs(const char *fname, struct file_struct *file, stat_x *sxp,
 	 || (!(preserve_times & PRESERVE_LINK_TIMES) && S_ISLNK(sxp->st.st_mode)))
 		flags |= ATTRS_SKIP_MTIME;
 	if (!(flags & ATTRS_SKIP_MTIME)
-	    && cmp_time(sxp->st.st_mtime, file->modtime) != 0) {
+	 && (sxp->st.st_mtime != file->modtime
+#ifdef ST_MTIME_NSEC
+	  || (NSEC_BUMP(file) && (uint32)sxp->st.ST_MTIME_NSEC != F_MOD_NSEC(file))
+#endif
+	  )) {
 		int ret = set_modtime(fname, file->modtime, F_MOD_NSEC(file), sxp->st.st_mode);
 		if (ret < 0) {
 			rsyserr(FERROR_XFER, errno, "failed to set times on %s",
@@ -601,7 +605,7 @@ int set_file_attrs(const char *fname, struct file_struct *file, stat_x *sxp,
 }
 
 /* This is only called for SIGINT, SIGHUP, and SIGTERM. */
-RETSIGTYPE sig_int(int sig_num)
+void sig_int(int sig_num)
 {
 	/* KLUGE: if the user hits Ctrl-C while ssh is prompting
 	 * for a password, then our cleanup's sending of a SIGUSR1

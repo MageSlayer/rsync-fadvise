@@ -14,6 +14,7 @@ CFLAGS=@CFLAGS@
 CPPFLAGS=@CPPFLAGS@
 EXEEXT=@EXEEXT@
 LDFLAGS=@LDFLAGS@
+LIBOBJDIR=lib/
 
 INSTALLCMD=@INSTALL@
 INSTALLMAN=@INSTALL@
@@ -28,7 +29,7 @@ VERSION=@RSYNC_VERSION@
 .SUFFIXES:
 .SUFFIXES: .c .o
 
-GENFILES=configure.sh config.h.in proto.h proto.h-tstamp rsync.1 rsyncd.conf.5
+GENFILES=configure.sh aclocal.m4 config.h.in proto.h proto.h-tstamp rsync.1 rsyncd.conf.5
 HEADERS=byteorder.h config.h errcode.h proto.h rsync.h ifuncs.h itypes.h inums.h \
 	lib/pool_alloc.h
 LIBOBJ=lib/wildmatch.o lib/compat.o lib/snprintf.o lib/mdfour.o lib/md5.o \
@@ -74,12 +75,12 @@ install: all
 
 install-ssl-client: rsync-ssl stunnel-rsync
 	-${MKDIR_P} ${DESTDIR}${bindir}
-	${INSTALLCMD} ${INSTALL_STRIP} -m 755 rsync-ssl ${DESTDIR}${bindir}
-	${INSTALLCMD} ${INSTALL_STRIP} -m 755 stunnel-rsync ${DESTDIR}${bindir}
+	${INSTALLCMD} -m 755 rsync-ssl ${DESTDIR}${bindir}
+	${INSTALLCMD} -m 755 stunnel-rsync ${DESTDIR}${bindir}
 
 install-ssl-daemon: stunnel-rsyncd.conf
 	-${MKDIR_P} ${DESTDIR}/etc/stunnel
-	${INSTALLCMD} ${INSTALL_STRIP} -m 644 stunnel-rsyncd.conf ${DESTDIR}/etc/stunnel/rsyncd.conf
+	${INSTALLCMD} -m 644 stunnel-rsyncd.conf ${DESTDIR}/etc/stunnel/rsyncd.conf
 	@if ! ls /etc/rsync-ssl/certs/server.* >/dev/null 2>/dev/null; then \
 	    echo "Note that you'll need to install the certificate used by /etc/stunnel/rsyncd.conf"; \
 	fi
@@ -138,10 +139,13 @@ t_unsafe$(EXEEXT): $(T_UNSAFE_OBJ)
 gen: conf proto.h man
 
 gensend: gen
-	rsync -aivzc $(GENFILES) samba.org:/home/ftp/pub/rsync/generated-files/
+	rsync -aivzc $(GENFILES) $${SAMBA_HOST-samba.org}:/home/ftp/pub/rsync/generated-files/
 
 conf:
 	cd $(srcdir) && $(MAKE) -f prepare-source.mak conf
+
+aclocal.m4: $(srcdir)/m4/*.m4
+	aclocal -I $(srcdir)/m4
 
 configure.sh config.h.in: configure.ac aclocal.m4
 	@if test -f configure.sh; then cp -p configure.sh configure.sh.old; else touch configure.sh.old; fi
@@ -303,21 +307,10 @@ installcheck: $(CHECK_PROGS) $(CHECK_SYMLINKS)
 splint:
 	splint +unixlib +gnuextensions -weak rsync.c
 
-
-rsync.dvi: doc/rsync.texinfo
-	texi2dvi -o $@ $<
-
-rsync.ps: rsync.dvi
-	dvips -ta4 -o $@ $<
-
-rsync.pdf: doc/rsync.texinfo
-	texi2dvi -o $@ --pdf $<
-
-
 doxygen:
 	cd $(srcdir) && rm dox/html/* && doxygen
 
 # for maintainers only
 doxygen-upload:
 	rsync -avzv $(srcdir)/dox/html/ --delete \
-	samba.org:/home/httpd/html/rsync/doxygen/head/
+	$${SAMBA_HOST-samba.org}:/home/httpd/html/rsync/doxygen/head/

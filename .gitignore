@@ -12,6 +12,7 @@ config.h.in
 config.h.in.old
 config.log
 config.status
+aclocal.m4
 /proto.h
 /proto.h-tstamp
 /rsync.1
@@ -23,11 +24,15 @@ config.status
 /getgroups
 /gmon.out
 /rsync
+/rsync-ssl
+/stunnel-rsync
+/stunnel-rsyncd.conf
 /shconfig
 /testdir
 /tests-dont-exist
 /testtmp
 /tls
+/testrun
 /trimslash
 /t_unsafe
 /wildtest
@@ -40,3 +45,4 @@ config.status
 /testsuite/devices-fake.test
 /testsuite/xattrs-hlink.test
 /patches
+.deps

@@ -1,5 +1,5 @@
 mailto(rsync-bugs@samba.org)
-manpage(rsync)(1)(22 Jun 2014)()()
+manpage(rsync)(1)(21 Dec 2015)()()
 manpagename(rsync)(a fast, versatile, remote (and local) file-copying tool)
 manpagesynopsis()
 
@@ -571,7 +571,9 @@ directly to stderr rather than to send messages to the client side via the
 protocol (which normally outputs info messages via stdout).  This is mainly
 intended for debugging in order to avoid changing the data sent via the
 protocol, since the extra protocol data can change what is being tested.
-Keep in mind that a daemon connection does not have a stderr channel to send
+The option does not affect the remote side of a transfer without using
+bf(--remote-option) -- e.g. bf(-M--msgs2stderr).
+Also keep in mind that a daemon connection does not have a stderr channel to send
 messages back to the client side, so if you are doing any daemon-transfer
 debugging using this option, you should start up a daemon using bf(--no-detach)
 so that you can see the stderr output on the daemon side.
@@ -863,6 +865,11 @@ transferred, nor does it affect the updating of any non-regular files.
 Implies bf(--inplace),
 but does not conflict with bf(--sparse) (since it is always extending a
 file's length).
+
+The use of bf(--append) can be dangerous if you aren't 100% sure that the files
+that are longer have only grown by the appending of data onto the end.  You
+should thus use include/exclude/filter rules to ensure that such a transfer is
+only affecting files that you know to be growing via appended data.
 
 dit(bf(--append-verify)) This works just like the bf(--append) option, but
 the existing data on the receiving side is included in the full-file
@@ -2449,7 +2456,7 @@ transfer that may be interrupted.
 
 There is also a bf(--info=progress2) option that outputs statistics based
 on the whole transfer, rather than individual files.  Use this flag without
-outputting a filename (e.g. avoid bf(-v) or specify bf(--info=name0) if you
+outputting a filename (e.g. avoid bf(-v) or specify bf(--info=name0)) if you
 want to see how the transfer is doing without scrolling the screen with a
 lot of names.  (You don't need to specify the bf(--progress) option in
 order to use bf(--info=progress2).)
@@ -3403,7 +3410,7 @@ url(http://rsync.samba.org/)(http://rsync.samba.org/)
 
 manpagesection(VERSION)
 
-This man page is current for version 3.1.1 of rsync.
+This man page is current for version 3.1.2 of rsync.
 
 manpagesection(INTERNAL OPTIONS)
 

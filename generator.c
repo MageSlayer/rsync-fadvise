@@ -4,7 +4,7 @@
  * Copyright (C) 1996-2000 Andrew Tridgell
  * Copyright (C) 1996 Paul Mackerras
  * Copyright (C) 2002 Martin Pool <mbp@samba.org>
- * Copyright (C) 2003-2014 Wayne Davison
+ * Copyright (C) 2003-2015 Wayne Davison
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -895,23 +895,21 @@ static int try_dests_reg(struct file_struct *file, char *fname, int ndx,
 	} while (basis_dir[++j] != NULL);
 
 	if (!match_level)
-		return -1;
+		goto got_nothing_for_ya;
 
 	if (j != best_match) {
 		j = best_match;
 		pathjoin(cmpbuf, MAXPATHLEN, basis_dir[j], fname);
 		if (link_stat(cmpbuf, &sxp->st, 0) < 0)
-			return -1;
+			goto got_nothing_for_ya;
 	}
 
 	if (match_level == 3 && !copy_dest) {
 		if (find_exact_for_existing) {
 			if (link_dest && real_st.st_dev == sxp->st.st_dev && real_st.st_ino == sxp->st.st_ino)
 				return -1;
-			if (do_unlink(fname) < 0 && errno != ENOENT) {
-				sxp->st = real_st;
-				return -1;
-			}
+			if (do_unlink(fname) < 0 && errno != ENOENT)
+				goto got_nothing_for_ya;
 		}
 #ifdef SUPPORT_HARD_LINKS
 		if (link_dest) {
@@ -935,10 +933,8 @@ static int try_dests_reg(struct file_struct *file, char *fname, int ndx,
 		return -2;
 	}
 
-	if (find_exact_for_existing) {
-		sxp->st = real_st;
-		return -1;
-	}
+	if (find_exact_for_existing)
+		goto got_nothing_for_ya;
 
 	if (match_level >= 2) {
 #ifdef SUPPORT_HARD_LINKS
@@ -946,7 +942,7 @@ static int try_dests_reg(struct file_struct *file, char *fname, int ndx,
 #endif
 		if (!dry_run && copy_altdest_file(cmpbuf, fname, file) < 0) {
 			if (find_exact_for_existing) /* Can get here via hard-link failure */
-				sxp->st = real_st;
+				goto got_nothing_for_ya;
 			return -1;
 		}
 		if (itemizing)
@@ -966,6 +962,10 @@ static int try_dests_reg(struct file_struct *file, char *fname, int ndx,
 	}
 
 	return FNAMECMP_BASIS_DIR_LOW + j;
+
+got_nothing_for_ya:
+	sxp->st = real_st;
+	return -1;
 }
 
 /* This is only called for non-regular files.  We return -2 if we've finished
@@ -1177,6 +1177,7 @@ static void recv_generator(char *fname, struct file_struct *file, int ndx,
 			   int itemizing, enum logcode code, int f_out)
 {
 	static const char *parent_dirname = "";
+	static struct file_struct *prior_dir_file = NULL;
 	/* Missing dir not created due to --dry-run; will still be scanned. */
 	static struct file_struct *dry_missing_dir = NULL;
 	/* Missing dir whose contents are skipped altogether due to
@@ -1256,6 +1257,18 @@ static void recv_generator(char *fname, struct file_struct *file, int ndx,
 		const char *dn = file->dirname ? file->dirname : ".";
 		dry_missing_dir = NULL;
 		if (parent_dirname != dn && strcmp(parent_dirname, dn) != 0) {
+			/* Each parent dir must be in the file list or the flist data is bad.
+			 * Optimization: most of the time the parent dir will be the last dir
+			 * this function was asked to process in the file list. */
+			if (!inc_recurse
+			 && (*dn != '.' || dn[1]) /* Avoid an issue with --relative and the "." dir. */
+			 && (prior_dir_file && strcmp(dn, f_name(prior_dir_file, NULL)) != 0)
+			 && flist_find_name(cur_flist, dn, 1) < 0) {
+				rprintf(FERROR,
+					"ABORTING due to invalid path from sender: %s/%s\n",
+					dn, file->basename);
+				exit_cleanup(RERR_PROTOCOL);
+			}
 			if (relative_paths && !implied_dirs
 			 && do_stat(dn, &sx.st) < 0) {
 				if (dry_run)
@@ -1467,6 +1480,7 @@ static void recv_generator(char *fname, struct file_struct *file, int ndx,
 			else
 				change_local_filter_dir(fname, strlen(fname), F_DEPTH(file));
 		}
+		prior_dir_file = file;
 		goto cleanup;
 	}
 

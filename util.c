@@ -4,7 +4,7 @@
  * Copyright (C) 1996-2000 Andrew Tridgell
  * Copyright (C) 1996 Paul Mackerras
  * Copyright (C) 2001, 2002 Martin Pool <mbp@samba.org>
- * Copyright (C) 2003-2014 Wayne Davison
+ * Copyright (C) 2003-2015 Wayne Davison
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -190,7 +190,7 @@ int make_path(char *fname, int flags)
 
 	if (flags & MKP_DROP_NAME) {
 		end = strrchr(fname, '/');
-		if (!end)
+		if (!end || end == fname)
 			return 0;
 		*end = '\0';
 	} else
@@ -210,8 +210,10 @@ int make_path(char *fname, int flags)
 			ret++;
 			break;
 		}
+
 		if (errno != ENOENT) {
-			if (errno != EEXIST)
+			STRUCT_STAT st;
+			if (errno != EEXIST || (do_stat(fname, &st) == 0 && !S_ISDIR(st.st_mode)))
 				ret = -ret - 1;
 			break;
 		}
@@ -1603,6 +1605,14 @@ int flist_ndx_pop(flist_ndx_list *lp)
 	return ndx;
 }
 
+/* Make sure there is room for one more item in the item list.  If there
+ * is not, expand the list as indicated by the value of "incr":
+ *  - if incr < 0 then increase the malloced size by -1 * incr
+ *  - if incr >= 0 then either make the malloced size equal to "incr"
+ *    or (if that's not large enough) double the malloced size
+ * After the size check, the list's count is incremented by 1 and a pointer
+ * to the "new" list item is returned.
+ */
 void *expand_item_list(item_list *lp, size_t item_size,
 		       const char *desc, int incr)
 {
@@ -1613,10 +1623,12 @@ void *expand_item_list(item_list *lp, size_t item_size,
 		if (incr < 0)
 			new_size += -incr; /* increase slowly */
 		else if (new_size < (size_t)incr)
-			new_size += incr;
-		else
+			new_size = incr;
+		else if (new_size)
 			new_size *= 2;
-		if (new_size < lp->malloced)
+		else
+			new_size = 1;
+		if (new_size <= lp->malloced)
 			overflow_exit("expand_item_list");
 		/* Using _realloc_array() lets us pass the size, not a type. */
 		new_ptr = _realloc_array(lp->items, item_size, new_size);

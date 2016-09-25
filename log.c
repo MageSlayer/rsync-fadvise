@@ -3,7 +3,7 @@
  *
  * Copyright (C) 1998-2001 Andrew Tridgell <tridge@samba.org>
  * Copyright (C) 2000-2001 Martin Pool <mbp@samba.org>
- * Copyright (C) 2003-2014 Wayne Davison
+ * Copyright (C) 2003-2015 Wayne Davison
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -656,21 +656,10 @@ static void log_formatted(enum logcode code, const char *format, const char *op,
 			n = auth_user;
 			break;
 		case 'b':
-			if (!(iflags & ITEM_TRANSFER))
-				b = 0;
-			else if (am_sender)
-				b = total_data_written - initial_data_written;
-			else
-				b = total_data_read - initial_data_read;
-			strlcat(fmt, "s", sizeof fmt);
-			snprintf(buf2, sizeof buf2, fmt,
-				 do_big_num(b, humanize, NULL));
-			n = buf2;
-			break;
 		case 'c':
 			if (!(iflags & ITEM_TRANSFER))
 				b = 0;
-			else if (!am_sender)
+			else if ((!!am_sender) ^ (*p == 'c'))
 				b = total_data_written - initial_data_written;
 			else
 				b = total_data_read - initial_data_read;

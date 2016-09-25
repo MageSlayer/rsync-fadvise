@@ -4,7 +4,7 @@
  * Copyright (C) 1996-2001 Andrew Tridgell <tridge@samba.org>
  * Copyright (C) 1996 Paul Mackerras
  * Copyright (C) 2001, 2002 Martin Pool <mbp@samba.org>
- * Copyright (C) 2003-2014 Wayne Davison
+ * Copyright (C) 2003-2015 Wayne Davison
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -76,6 +76,7 @@ extern size_t bwlimit_writemax;
 extern unsigned int module_dirlen;
 extern BOOL flist_receiving_enabled;
 extern BOOL shutting_down;
+extern int backup_dir_len;
 extern int basis_dir_cnt;
 extern struct stats stats;
 extern char *stdout_format;
@@ -850,13 +851,25 @@ static int do_recv(int f_in, int f_out, char *local_name)
 	}
 
 	if (backup_dir) {
-		int ret = make_path(backup_dir_buf, MKP_DROP_NAME); /* drops trailing slash */
-		if (ret < 0)
-			exit_cleanup(RERR_SYNTAX);
-		if (ret)
-			rprintf(FINFO, "Created backup_dir %s\n", backup_dir_buf);
-		else if (INFO_GTE(BACKUP, 1))
+		STRUCT_STAT st;
+		int ret;
+		if (backup_dir_len > 1)
+			backup_dir_buf[backup_dir_len-1] = '\0';
+		ret = do_stat(backup_dir_buf, &st);
+		if (ret != 0 || !S_ISDIR(st.st_mode)) {
+			if (ret == 0) {
+				rprintf(FERROR, "The backup-dir is not a directory: %s\n", backup_dir_buf);
+				exit_cleanup(RERR_SYNTAX);
+			}
+			if (errno != ENOENT) {
+				rprintf(FERROR, "Failed to stat %s: %s\n", backup_dir_buf, strerror(errno));
+				exit_cleanup(RERR_FILEIO);
+			}
+			rprintf(FINFO, "(new) backup_dir is %s\n", backup_dir_buf);
+		} else if (INFO_GTE(BACKUP, 1))
 			rprintf(FINFO, "backup_dir is %s\n", backup_dir_buf);
+		if (backup_dir_len > 1)
+			backup_dir_buf[backup_dir_len-1] = '/';
 	}
 
 	io_flush(FULL_FLUSH);
@@ -1009,7 +1022,7 @@ static void do_server_recv(int f_in, int f_out, int argc, char *argv[])
 		filesfrom_fd = -1;
 	}
 
-	flist = recv_file_list(f_in);
+	flist = recv_file_list(f_in, -1);
 	if (!flist) {
 		rprintf(FERROR,"server_recv: recv_file_list error\n");
 		exit_cleanup(RERR_FILESELECT);
@@ -1183,7 +1196,7 @@ int client_run(int f_in, int f_out, pid_t pid, int argc, char *argv[])
 
 	if (write_batch && !am_server)
 		start_write_batch(f_in);
-	flist = recv_file_list(f_in);
+	flist = recv_file_list(f_in, -1);
 	if (inc_recurse && file_total == 1)
 		recv_additional_file_list(f_in);
 
@@ -1411,12 +1424,12 @@ static int start_client(int argc, char *argv[])
 }
 
 
-static RETSIGTYPE sigusr1_handler(UNUSED(int val))
+static void sigusr1_handler(UNUSED(int val))
 {
 	exit_cleanup(RERR_SIGNAL1);
 }
 
-static RETSIGTYPE sigusr2_handler(UNUSED(int val))
+static void sigusr2_handler(UNUSED(int val))
 {
 	if (!am_server)
 		output_summary();
@@ -1426,7 +1439,7 @@ static RETSIGTYPE sigusr2_handler(UNUSED(int val))
 	_exit(0);
 }
 
-RETSIGTYPE remember_children(UNUSED(int val))
+void remember_children(UNUSED(int val))
 {
 #ifdef WNOHANG
 	int cnt, status;
@@ -1487,7 +1500,7 @@ const char *get_panic_action(void)
  * should just look at the environment variable, but I'm a bit leery
  * of a signal sending us into a busy loop.
  **/
-static RETSIGTYPE rsync_panic_handler(UNUSED(int whatsig))
+static void rsync_panic_handler(UNUSED(int whatsig))
 {
 	char cmd_buf[300];
 	int ret, pid_int = getpid();
